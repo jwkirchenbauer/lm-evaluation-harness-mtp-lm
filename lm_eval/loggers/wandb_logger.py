@@ -54,8 +54,7 @@ class WandbLogger:
         self.step = self.wandb_args.pop("step", None)
 
         # process the tags delimited list
-        self.wandb_args["tags"] = self.wandb_args.get("tags", None)
-        if self.wandb_args["tags"] is not None:
+        if self.wandb_args.get("tags", None) is not None:
             assert isinstance(self.wandb_args["tags"], str), "tags must be a string delimited by a special character, eg. '+'"
             self.wandb_args["tags"] = self.wandb_args["tags"].split("+")
 
