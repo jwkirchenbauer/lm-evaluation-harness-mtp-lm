@@ -215,10 +215,24 @@ def simple_evaluate(
         raise ValueError(
             "No tasks specified, or no tasks found. Please verify the task names."
         )
-
     if gen_kwargs:
         if isinstance(gen_kwargs, str):
             gen_kwargs = simple_parse_args_string(gen_kwargs)
+        # process any values that are strings that containg the special delimiter '+'
+        # then try coercing some of the common types like "0.9" to float 0.9, etc
+        from ast import literal_eval
+        for k, v in gen_kwargs.items():
+            if isinstance(v, str) and "+" in v:
+                print(f"Splitting gen_kwargs value for key {k}: {v} -> {v.split('+')}")
+                split_values = v.split("+")
+                for i,v in enumerate(split_values):
+                    try:
+                        v = literal_eval(v)
+                    except (ValueError, SyntaxError):
+                        print(f"Could not literal_eval value for value {v} under key {k}, keeping as string.")
+                    split_values[i] = v
+                gen_kwargs[k] = split_values
+        
         eval_logger.warning(
             f"generation_kwargs: {gen_kwargs} specified through cli, these settings will update set parameters in yaml tasks. "
             "Ensure 'do_sample=True' for non-greedy decoding!"
