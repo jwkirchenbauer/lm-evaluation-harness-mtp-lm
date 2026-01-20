@@ -648,6 +648,34 @@ def evaluate(
             for doc_id, doc in doc_iterator:
                 doc_id_true = indices[doc_id] if indices else doc_id
                 requests = instances_by_doc_id[doc_id]
+                
+                
+                # The main handling that we appear to need is in lm_eval/api/filter.py
+                # Where we have a hack to just show the filters the "orig_res" key. 
+                # But here is a goot time to pop off all the mtp specific keys and check them.
+                # It's also possible that process results does something where we'd have a side effect,
+                # So we avoid that here too.
+                all_mtp_results = []
+                mtp_results_found = False
+                for i in range(len(requests)):
+                    all_mtp_results.append([])
+                    for j in range(len(requests[i].resps)):
+                        orig_resps = requests[i].resps[j]
+                        if not isinstance(orig_resps, dict):
+                            # not an mtp response, skip as this is probably the second pass, or not running mtp
+                            continue
+                        mtp_results_found = True
+                        str_res = orig_resps.pop("orig_res")
+                        assert str_res is not None, "str_res missing from request responses."
+                        mtp_result_keys = ["token_ids","leading_toks_hash","num_fwd_evals","t_prefill","t_gen","tokens_generated","toks_gend_incl_prefillplus1","avg_effective_k","effective_k_values"]
+                        assert set(orig_resps.keys()) == set(mtp_result_keys), f"MTP result keys mismatch. Expected {mtp_result_keys}, got {list(orig_resps.keys())}."
+                        requests[i].resps[j] = str_res
+                        all_mtp_results[i].append(orig_resps)
+                # not quite clear on the purpose of this nesting structure so trying to be careful/brittle here
+                if mtp_results_found:
+                    assert (len(all_mtp_results) == len(requests)), "MTP results length mismatch."
+                    assert (len(all_mtp_results[0]) == len(requests[0].resps)), "MTP inner results length mismatch."
+
                 metrics = task.process_results(
                     doc, [req.filtered_resps[filter_key] for req in requests]
                 )
@@ -676,6 +704,12 @@ def evaluate(
                         "target_hash": hash_string(str(target)),
                     }
                     example.update(metrics)
+                    # now add the mtp results if we have them
+                    if mtp_results_found:
+                        example["mtp_results"] = all_mtp_results
+                        # brittle debugging check, can eventually remove if we want
+                        assert lm.tokenizer.decode(example["mtp_results"][0][0]["token_ids"], skip_special_tokens=True).startswith(example["resps"][0][0]), "original response string should at least be a prefix of the full decoded token_ids from mtp results..."
+
                     task_output.logged_samples.append(example)
                 for metric, value in metrics.items():
                     task_output.sample_metrics[(metric, filter_key)].append(value)

@@ -1370,6 +1370,8 @@ class HFLM(TemplateLM):
         self, requests: list[Instance], disable_tqdm: bool = False
     ) -> list[str]:
         res = []
+        aux_mtp_res = []
+        all_gend_toks = []
 
         def _collate(req: tuple[str, dict]):
             """Defines the key for the sorted method"""
@@ -1470,11 +1472,28 @@ class HFLM(TemplateLM):
                 **kwargs,
             )
 
+            if isinstance(cont, torch.Tensor):
+                pass # standard return
+            elif isinstance(cont, list):
+                pass # probably another standard return but idk
+            elif isinstance(cont, dict):
+                assert "token_ids" in cont, "Expected 'token_ids' key in generation output dict"
+                token_ids = cont.pop("token_ids")
+                if len(token_ids.shape) == 2: assert token_ids.shape[0] == 1, "Batch size > 1 not supported in MTP dict output format."
+                mtp_results = cont  # other keys in dict
+                aux_mtp_res.append(mtp_results)
+                cont = token_ids
+            else:
+                raise TypeError(
+                    f"Expected generation output to be of type `torch.Tensor`, `list`, or `dict` but got {type(cont)}"
+                )
+                    
             cont_toks_list = cont.tolist()
             for cont_toks, context in zip(cont_toks_list, contexts, strict=True):
                 # discard context + left-padding toks if using causal decoder-only LM
                 if self.backend == "causal":
                     cont_toks = cont_toks[context_enc.shape[1] :]
+                    all_gend_toks.append(cont_toks)
 
                 # Handle integer think_end_token: find last occurrence and strip tokens after it
                 if isinstance(self.think_end_token, int):
@@ -1504,8 +1523,23 @@ class HFLM(TemplateLM):
 
                 self.cache_hook.add_partial("generate_until", (context, gen_kwargs), s)
                 pbar.update(1)
+
+        if len(aux_mtp_res) > 0:
+            res = [dict(orig_res=r,token_ids=gend_toks,**aux) for r,gend_toks,aux in zip(res, all_gend_toks, aux_mtp_res, strict=True)]
+
         # reorder this group of results back to original unsorted form
         res = re_ords.get_original(res)
+        
+        if len(aux_mtp_res) > 0:
+            # testing for generation vs. aux data order integrity
+            import hashlib
+            for result in res:
+                orig_res = result['orig_res']
+                new_leading_toks = result['token_ids'][:10]
+                orig_leading_toks_hash = result['leading_toks_hash']
+                new_leading_toks_hash = hashlib.shake_128(str(new_leading_toks).encode()).hexdigest(4)
+                # print(f"new_leading_toks: {new_leading_toks}, new_leading_toks_hash: {new_leading_toks_hash}", flush=True)
+                assert orig_leading_toks_hash == new_leading_toks_hash, "hash mismatch after reordering results!"
 
         pbar.close()
 

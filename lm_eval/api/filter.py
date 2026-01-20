@@ -46,6 +46,10 @@ class FilterEnsemble:
         resps, docs = zip(*((inst.resps, inst.doc) for inst in instances))
         resps, docs = list(resps), list(docs)
 
+        # we are hijacking the responses list with other data in a dict
+        # so for this step to work, we need to give just the field that it expects
+        resps = [[r["orig_res"] if isinstance(r, dict) and "orig_res" in r else r for r in resp] for resp in resps]
+
         for f in self.filters:
             # apply filters in sequence
             resps = f().apply(resps, docs)
