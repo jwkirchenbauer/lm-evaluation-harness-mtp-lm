@@ -667,7 +667,7 @@ def evaluate(
                         mtp_results_found = True
                         str_res = orig_resps.pop("orig_res")
                         assert str_res is not None, "str_res missing from request responses."
-                        mtp_result_keys = ["token_ids","leading_toks_hash","num_fwd_evals","t_prefill","t_gen","tokens_generated","toks_gend_incl_prefillplus1","avg_effective_k","effective_k_values"]
+                        mtp_result_keys = ["token_ids","leading_toks_hash","num_fwd_evals","t_prefill","t_gen","tokens_generated","toks_gend_incl_prefillplus1","avg_effective_k","effective_k_values","tps"]
                         assert set(orig_resps.keys()) == set(mtp_result_keys), f"MTP result keys mismatch. Expected {mtp_result_keys}, got {list(orig_resps.keys())}."
                         requests[i].resps[j] = str_res
                         all_mtp_results[i].append(orig_resps)
