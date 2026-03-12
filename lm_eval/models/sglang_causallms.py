@@ -1,5 +1,6 @@
 import copy
 import logging
+from ast import literal_eval
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Dict, List, Optional, Tuple, Union
 
@@ -28,6 +29,54 @@ except ModuleNotFoundError:
 
 if TYPE_CHECKING:
     pass
+
+
+def _normalize_int_list_arg(name: str, value):
+    """Normalize list-like model args passed via CLI into a list of ints.
+
+    `--model_args` parsing in lm-eval is comma-delimited and scalar-focused, so
+    list-valued args often arrive as int/float/string. Accept common forms like:
+    `3`, `3.0`, `1 3`, `1+3`, `1;3`, `1|3`, `[1 3]`, `[1+3]`.
+    """
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return [int(v) for v in value]
+    if isinstance(value, tuple):
+        return [int(v) for v in value]
+    if isinstance(value, set):
+        return [int(v) for v in sorted(value)]
+    if isinstance(value, (int, float)):
+        return [int(value)]
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("[") and text.endswith("]"):
+            text = text[1:-1].strip()
+        # Mirror evaluator-style "+" delimiter handling and allow a few other
+        # shell-friendly separators for list-like model args.
+        text = (
+            text.replace("+", " ")
+            .replace(";", " ")
+            .replace("|", " ")
+        )
+        if not text:
+            return []
+        try:
+            normalized = []
+            for token in text.split():
+                try:
+                    parsed = literal_eval(token)
+                except (ValueError, SyntaxError):
+                    parsed = token
+                normalized.append(int(parsed))
+            return normalized
+        except ValueError as exc:
+            raise ValueError(
+                f"Could not parse `{name}` as a list of integers: {value!r}"
+            ) from exc
+    raise ValueError(
+        f"Unsupported value type for `{name}`: {type(value)} (value={value!r})"
+    )
 
 
 @register_model("sglang")
@@ -98,7 +147,17 @@ class SGLangLM(TemplateLM):
             "chunked_prefill_size": chunked_prefill_size,
         }
 
-        self.model_args.update(kwargs)
+        normalized_kwargs = dict(kwargs)
+        for list_key in (
+            "mtp_static_cuda_graph_k_list",
+            "mtp_adaptive_cuda_graph_kmax_list",
+            "mtp_adaptive_canonical_q_lens",
+        ):
+            if list_key in normalized_kwargs:
+                normalized_kwargs[list_key] = _normalize_int_list_arg(
+                    list_key, normalized_kwargs[list_key]
+                )
+        self.model_args.update(normalized_kwargs)
         self.batch_size = (
             "auto"
             if isinstance(batch_size, str) and "auto" in batch_size
