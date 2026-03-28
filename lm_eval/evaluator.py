@@ -230,6 +230,11 @@ def simple_evaluate(
                         v = literal_eval(v)
                     except (ValueError, SyntaxError):
                         print(f"Could not literal_eval value for value {v} under key {k}, keeping as string.")
+                    if isinstance(v, str) and "\\" in v:
+                        # we also need to postprocess escaped characters, such as "\n". They tend to show up as "\\n" in the gen_kwargs string, so we can replace any "\\" with a single one to fix this.
+                        new_v = v.encode('raw_unicode_escape').decode('unicode_escape')
+                        print(f"Postprocessed escaped characters in gen_kwargs value for key {k}, value: {v} -> {new_v}")
+                        v = new_v
                     split_values[i] = v
                 gen_kwargs[k] = split_values
         
